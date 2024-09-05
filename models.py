@@ -13,3 +13,18 @@ class Post(UserPost):
 
 class Posts(BaseModel):
     posts: List[Post]
+
+
+class User(BaseModel):
+    username: str
+    password: str
+
+
+class UserHashed(BaseModel):
+    username: str
+    salt: str
+    hash_password: str
+
+
+class UserHashedIndex(UserHashed):
+    user_id: int
