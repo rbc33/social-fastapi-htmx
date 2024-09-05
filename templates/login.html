@@ -1,35 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sign up</title>
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css"
-    />
-  </head>
-  <body>
-    <div class="columns">
-      <div class="column is-half is-offset-one-quarter">
-        <div class="card">
-          <header class="card-header">
-            <p class="card-header-title">Log in</p>
-          </header>
-          {% if incorrect %}
-          <div class="mg-small"><p>Incorrect user or password</p></div>
-          {% endif %}
-          <div class="card-content">
-            <form action="/login" method="post">
-              <label for="username" class="label">Username</label>
-              <input type="text" name="username" class="input" />
-              <label for="password" class="label">Password</label>
-              <input type="password" name="password" class="input" />
-              <input type="submit" class="button" />
-            </form>
-          </div>
-        </div>
-      </div>
-    </div>
-  </body>
-</html>
+{% extends "base.html" %} {% block content %}
+      {% if taken %}
+      <p>Username {{ username }} already taken!</p>
+      {% endif %}
+  {% include "user_form.html" %}
+  {% endblock %}
+</div>

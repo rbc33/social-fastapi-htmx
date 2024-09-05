@@ -1,6 +1,6 @@
 import os
 from typing import Annotated, Optional
-from fastapi import Depends, FastAPI, Request, Form, status, Header
+from fastapi import Cookie, Depends, FastAPI, Request, Form, status, Header
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import OAuth2
 from fastapi.templating import Jinja2Templates
@@ -44,17 +44,28 @@ conn.row_factory = Row
 
 
 @app.get("/")
-async def root(request: Request) -> HTMLResponse:
-    post = get_post(conn)
-    return templates.TemplateResponse(request, "index.html", context=post.model_dump())
+async def root(
+    request: Request, access_token: Annotated[str | None, Cookie()] = None
+) -> HTMLResponse:
+    context = get_post(conn).model_dump()
+    if access_token:
+        context["login"] = True
+    return templates.TemplateResponse(request, "index.html", context)
+
+
+@app.get("/logout")
+async def logout():
+    response = RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie("access_token")
+    return response
 
 
 @app.get("/posts")
 async def post(request: Request) -> HTMLResponse:
     header = request.headers
     print(header)
-    posts = get_post(conn)
-    return templates.TemplateResponse(request, "posts.html", context=posts.model_dump())
+    context = get_post(conn).model_dump()
+    return templates.TemplateResponse(request, "posts.html", context=context)
 
 
 @app.post("/posts")
@@ -63,8 +74,8 @@ async def add_post(
 ) -> HTMLResponse:
     post = Post(user_id=user_id, **post.model_dump())
     insert_post(conn, post)
-    posts = get_post(conn)
-    return templates.TemplateResponse(request, "posts.html", context=posts.model_dump())
+    context = {"post_added": True}
+    return templates.TemplateResponse(request, "add_post.html", context=context)
 
 
 @app.get("/signup")
@@ -89,7 +100,8 @@ async def add_user(
 
 @app.get("/login")
 async def login_page(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request, "login.html")
+    context = {"login": True}
+    return templates.TemplateResponse(request, "login.html", context)
 
 
 @app.post("/login")
