@@ -1,11 +1,41 @@
 import os
-from typing import Annotated, Optional
-from fastapi import Cookie, Depends, FastAPI, Request, Form, status, Header
+from typing import Annotated, Dict, Optional
+from typing_extensions import Annotated, Doc
+from fastapi import (
+    Cookie,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    Form,
+    status,
+    Header,
+)
+from fastapi.openapi.models import OAuthFlows as OAuthFlowsModel
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.security import OAuth2
+from fastapi.security import OAuth2, OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.templating import Jinja2Templates
-from database import get_post, get_user, insert_post, create_user
-from models import Posts, Post, User, UserHashedIndex, UserPost, UserHashed
+from database import (
+    check_like,
+    delete_like,
+    get_post,
+    get_single_post,
+    get_user,
+    insert_post,
+    create_user,
+    add_like,
+)
+from models import (
+    InsertPost,
+    Like,
+    PostId,
+    Posts,
+    Post,
+    User,
+    UserHashedIndex,
+    UserPost,
+    UserHashed,
+)
 from sqlite3 import Connection, Row
 from secrets import token_hex
 from passlib.hash import pbkdf2_sha256
@@ -29,18 +59,48 @@ def decrypt_access_token(access_token: Optional[str]) -> int | None:
 
 
 class OAuthCookie(OAuth2):
+    def __init__(self):
+        super().__init__(auto_error=False)
 
     def __call__(self, request: Request) -> Optional[int]:
-        _, access_token = request.cookies.get("access_token").split()
-        return decrypt_access_token(access_token)
+        access_token = request.cookies.get("access_token")
+        if not access_token:
+            return None
+        try:
+            scheme, token = access_token.split()
+            if scheme.lower() != "bearer":
+                return None
+            return decrypt_access_token(token)
+        except ValueError:
+            return None
 
 
 oauth_cookie = OAuthCookie()
 
 app = FastAPI()
+
 templates = Jinja2Templates(directory="templates")
+
 conn = Connection("social.db")
 conn.row_factory = Row
+
+
+@app.post("/token")
+async def auth(
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+):
+    user: UserHashedIndex = get_user(conn, form_data.username)
+    if not user or not pbkdf2_sha256.verify(
+        form_data.password + user.salt, user.hash_password
+    ):
+        return {"message": "error getting token"}
+    token = jwt.encode(
+        {"username": form_data.username, "user_id": user.user_id},
+        JWT_KEY,
+        algorithm="HS256",
+    )
+
+    return {"access_token": token}
 
 
 @app.get("/")
@@ -61,10 +121,16 @@ async def logout():
 
 
 @app.get("/posts")
-async def post(request: Request) -> HTMLResponse:
-    header = request.headers
-    print(header)
-    context = get_post(conn).model_dump()
+async def post(
+    request: Request, access_token: Annotated[str | None, Cookie()] = None
+) -> HTMLResponse:
+    user_id = None
+    if access_token:
+        user_id = decrypt_access_token(access_token)
+    context = get_post(conn, user_id).model_dump()
+    if access_token:
+        context["login"] = True
+    # breakpoint()
     return templates.TemplateResponse(request, "posts.html", context=context)
 
 
@@ -72,7 +138,7 @@ async def post(request: Request) -> HTMLResponse:
 async def add_post(
     post: UserPost, request: Request, user_id: int | None = Depends(oauth_cookie)
 ) -> HTMLResponse:
-    post = Post(user_id=user_id, **post.model_dump())
+    post = InsertPost(user_id=user_id, **post.model_dump())
     insert_post(conn, post)
     context = {"post_added": True}
     return templates.TemplateResponse(request, "add_post.html", context=context)
@@ -126,6 +192,21 @@ async def log_in(
         # secure=True  # Uncomment for production use with HTTPS
     )
     return response
+
+
+@app.post("/like")
+async def upload_like(
+    post_id: PostId, request: Request, user_id: int = Depends(oauth_cookie)
+) -> HTMLResponse:
+    like = Like(user_id=user_id, post_id=post_id.post_id)
+    if check_like(conn, like):
+        delete_like(conn, like)
+    else:
+        add_like(conn, like)
+    context = get_single_post(conn, post_id.post_id, user_id).model_dump()
+    context = {"post": context}
+    context["login"] = True
+    return templates.TemplateResponse(request, "post.html", context)
 
 
 if __name__ == "__main__":
