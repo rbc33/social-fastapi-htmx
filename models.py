@@ -7,11 +7,16 @@ class UserPost(BaseModel):
     post_text: str
 
 
+class UserPostId(UserPost):
+    user_id: int
+
+
 class Post(UserPost):
     post_id: int
     user_id: int
     num_likes: None | int
     user_liked: None | int
+    number_comments: None | int
 
 
 class InsertPost(UserPost):

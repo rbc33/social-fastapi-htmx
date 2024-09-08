@@ -1,10 +1,18 @@
 <div class="card" id="post_card_{{post.post_id}}">
+  {%if post.post_image %}
+  <div class="card-image">
+    <figure class="image is-4by3">
+      <img src="/static/images/{{ post.post_image }}" />
+    </figure>
+  </div>
+  {%endif %}
   <header class="card-header">
     <h3>{{ post.post_title }}</h3>
   </header>
   <div class="card-content">
     <p>{{ post.post_text }}</p>
-    {% include "like_counter.html" %}
+    {%include 'like_counter.html' %} {%include 'comment_counter.html' %} {%if
+    comment_form %} {%include 'comment_form.html' %} {%endif %}
   </div>
-  {% include "post_footer.html" %}
+  {%include 'post_footer.html' %}
 </div>

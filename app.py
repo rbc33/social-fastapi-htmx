@@ -16,8 +16,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import OAuth2, OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.templating import Jinja2Templates
 from database import (
+    add_comment,
     check_like,
     delete_like,
+    get_comments,
     get_post,
     get_single_post,
     get_user,
@@ -35,6 +37,7 @@ from models import (
     UserHashedIndex,
     UserPost,
     UserHashed,
+    UserPostId,
 )
 from sqlite3 import Connection, Row
 from secrets import token_hex
@@ -45,6 +48,8 @@ from dotenv import load_dotenv
 _ = load_dotenv()
 JWT_KEY = os.getenv("JWT_KEY")
 EXPIRATION_TIME = 3600
+
+ContextType = dict[str, str | int | None | dict | bool]
 
 
 def decrypt_access_token(access_token: Optional[str]) -> int | None:
@@ -207,6 +212,53 @@ async def upload_like(
     context = {"post": context}
     context["login"] = True
     return templates.TemplateResponse(request, "post.html", context)
+
+
+@app.get("/add_comment_form_{post_id}")
+async def get_comment_form(
+    post_id: int, request: Request, user_id: int = Depends(oauth_cookie)
+) -> HTMLResponse:
+    context = get_single_post(conn, post_id, user_id).model_dump()
+    context: ContextType
+    context = {"post": context}
+    context["comment_form"] = True
+    context["login"] = True
+    return templates.TemplateResponse(request, "./post.html", context=context)
+
+
+@app.post("/add_comment_{post_id}")
+async def post_comment_form(
+    post_id: int,
+    post_text: Annotated[str, Form()],
+    post_title: Annotated[str, Form()],
+    request: Request,
+    user_id: int = Depends(oauth_cookie),
+) -> HTMLResponse:
+    post = UserPostId(user_id=user_id, post_text=post_text, post_title=post_title)
+    comment_id = insert_post(conn, post)
+    add_comment(conn, comment_id, post_id)
+    context: ContextType = get_single_post(conn, post_id, user_id).model_dump()
+    context = {"post": context}
+    context["comment_form"] = False
+    context["login"] = True
+    return templates.TemplateResponse(request, "./post.html", context=context)
+
+
+@app.get("/get_thread{post_id}")
+async def get_thread(
+    post_id: int, request: Request, access_token: Annotated[str | None, Cookie()] = None
+) -> HTMLResponse:
+    user_id = None
+    if access_token:
+        user_id = decrypt_access_token(access_token)
+    context = {}
+    context["main_post"] = {
+        "posts": [get_single_post(conn, post_id, user_id).model_dump()]
+    }
+    comments = get_comments(conn, post_id, user_id).model_dump()
+    context["comments"] = comments
+    context["login"] = True
+    return templates.TemplateResponse(request, "/comment_thread.html", context)
 
 
 if __name__ == "__main__":
