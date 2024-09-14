@@ -8,6 +8,7 @@ from fastapi import (
     HTTPException,
     Request,
     Form,
+    UploadFile,
     status,
     Header,
 )
@@ -15,6 +16,7 @@ from fastapi.openapi.models import OAuthFlows as OAuthFlowsModel
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import OAuth2, OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 from database import (
     add_comment,
     check_like,
@@ -42,10 +44,12 @@ from models import (
 from sqlite3 import Connection, Row
 from secrets import token_hex
 from passlib.hash import pbkdf2_sha256
+from uuid import uuid4
+from pathlib import Path
 import jwt
 from dotenv import load_dotenv
 
-_ = load_dotenv()
+
 JWT_KEY = os.getenv("JWT_KEY")
 EXPIRATION_TIME = 3600
 
@@ -83,6 +87,8 @@ class OAuthCookie(OAuth2):
 oauth_cookie = OAuthCookie()
 
 app = FastAPI()
+
+app.mount("/static", StaticFiles(directory="static"), "static")
 
 templates = Jinja2Templates(directory="templates")
 
@@ -141,9 +147,25 @@ async def post(
 
 @app.post("/posts")
 async def add_post(
-    post: UserPost, request: Request, user_id: int | None = Depends(oauth_cookie)
+    post_title: Annotated[str, Form()],
+    post_text: Annotated[str, Form()],
+    request: Request,
+    post_image: UploadFile | None = None,
+    user_id: int | None = Depends(oauth_cookie),
 ) -> HTMLResponse:
-    post = InsertPost(user_id=user_id, **post.model_dump())
+    image_path = None
+    if post_image:
+        image_path = Path("./static/images") / uuid4().hex
+        image_data = await post_image.read()
+        image_path.write_bytes(image_data)
+        image_path = image_path.name
+
+    post = InsertPost(
+        user_id=user_id,
+        post_title=post_title,
+        post_text=post_text,
+        post_image=image_path,
+    )
     insert_post(conn, post)
     context = {"post_added": True}
     return templates.TemplateResponse(request, "add_post.html", context=context)
@@ -244,10 +266,9 @@ async def post_comment_form(
     return templates.TemplateResponse(request, "./post.html", context=context)
 
 
-@app.get("/get_thread{post_id}")
-async def get_thread(
-    post_id: int, request: Request, access_token: Annotated[str | None, Cookie()] = None
-) -> HTMLResponse:
+def get_comment_thread_helper(
+    access_token: str | None, post_id: int, hide: bool = False
+) -> dict:
     user_id = None
     if access_token:
         user_id = decrypt_access_token(access_token)
@@ -255,9 +276,28 @@ async def get_thread(
     context["main_post"] = {
         "posts": [get_single_post(conn, post_id, user_id).model_dump()]
     }
+    context["main_post"]["posts"][0]["hide_see_comments"] = not hide
+    if hide:
+        return context
     comments = get_comments(conn, post_id, user_id).model_dump()
     context["comments"] = comments
     context["login"] = True
+    return context
+
+
+@app.get("/get_thread{post_id}")
+async def get_thread(
+    post_id: int, request: Request, access_token: Annotated[str | None, Cookie()] = None
+) -> HTMLResponse:
+    context = get_comment_thread_helper(access_token, post_id)
+    return templates.TemplateResponse(request, "/comment_thread.html", context)
+
+
+@app.get("/hide_thread{post_id}")
+async def hide_thread(
+    post_id: int, request: Request, access_token: Annotated[str | None, Cookie()] = None
+) -> HTMLResponse:
+    context = get_comment_thread_helper(access_token, post_id, hide=True)
     return templates.TemplateResponse(request, "/comment_thread.html", context)
 
 
