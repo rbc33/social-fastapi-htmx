@@ -11,6 +11,7 @@ from fastapi import (
     UploadFile,
     status,
     Header,
+    Query,
 )
 from fastapi.openapi.models import OAuthFlows as OAuthFlowsModel
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -49,7 +50,7 @@ from pathlib import Path
 import jwt
 from dotenv import load_dotenv
 
-
+_ = load_dotenv()
 JWT_KEY = os.getenv("JWT_KEY")
 EXPIRATION_TIME = 3600
 
@@ -131,16 +132,21 @@ async def logout():
     return response
 
 
-@app.get("/posts")
+@app.get("/posts", response_model=None)
 async def post(
-    request: Request, access_token: Annotated[str | None, Cookie()] = None
-) -> HTMLResponse:
+    request: Request,
+    page: Annotated[int, Query()] = 0,
+    access_token: Annotated[str | None, Cookie()] = None,
+) -> HTMLResponse | None:
     user_id = None
     if access_token:
         user_id = decrypt_access_token(access_token)
-    context = get_post(conn, user_id).model_dump()
+    context = get_post(conn, user_id, page=page).model_dump()
+    context["page"] = page
     if access_token:
         context["login"] = True
+    if context["posts"] == []:
+        return None
     # breakpoint()
     return templates.TemplateResponse(request, "posts.html", context=context)
 

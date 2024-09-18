@@ -1,1 +1,2 @@
 {% for post in posts %} {% include "post.html" %} {% endfor %}
+<div hx-trigger="revealed" hx-swap="outerHTML" hx-get="/posts" hx-vals='{"page": "{{ page + 1 }}"}'/>
